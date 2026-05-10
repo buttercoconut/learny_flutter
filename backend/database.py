@@ -1,52 +1,31 @@
-"""In-memory data store for demo purposes."""
+"""Database configuration and session management.
 
-from typing import Dict, List
-from models.student import Student, StudentCreate
-from models.learning_content import LearningContent, LearningContentCreate
+Uses SQLAlchemy 2.0 async API with asyncpg driver.
+"""
 
-# Simple auto-increment ID counters
-_student_id_seq = 1
-_content_id_seq = 1
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker, declarative_base
+import os
 
-# In-memory storage
-students: Dict[int, Student] = {}
-contents: Dict[int, LearningContent] = {}
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/learny")
 
-# Helper functions
+engine = create_async_engine(DATABASE_URL, echo=False, future=True)
 
-def add_student(student_in: StudentCreate) -> Student:
-    global _student_id_seq
-    student = Student(id=_student_id_seq, **student_in.dict())
-    students[_student_id_seq] = student
-    _student_id_seq += 1
-    return student
+# Session local for dependency injection
+async_session = sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
+)
 
-def get_student(student_id: int) -> Student | None:
-    return students.get(student_id)
+Base = declarative_base()
 
-def list_students() -> List[Student]:
-    return list(students.values())
+# Dependency
+async def get_session() -> AsyncSession:
+    async with async_session() as session:
+        yield session
 
-# Learning content helpers
+# Create tables helper
+async def init_models():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
-def add_content(content_in: LearningContentCreate) -> LearningContent:
-    global _content_id_seq
-    content = LearningContent(id=_content_id_seq, **content_in.dict())
-    contents[_content_id_seq] = content
-    _content_id_seq += 1
-    return content
-
-def get_content(content_id: int) -> LearningContent | None:
-    return contents.get(content_id)
-
-def list_contents() -> List[LearningContent]:
-    return list(contents.values())
-
-# Seed some data for demo
-if not contents:
-    add_content(LearningContentCreate(title="수학 기초", content="수학 기초 내용", difficulty="초급"))
-    add_content(LearningContentCreate(title="과학 탐험", content="과학 탐험 내용", difficulty="중급"))
-
-if not students:
-    add_student(StudentCreate(name="민준", grade=3, level="초급"))
-    add_student(StudentCreate(name="지은", grade=4, level="중급"))
+# Call init_models() during startup event if needed
